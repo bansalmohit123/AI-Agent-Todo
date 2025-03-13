@@ -9,7 +9,7 @@ dotenv.config();
 
 // Initialize Google Gemini Pro
 const llm = new ChatGoogleGenerativeAI({
-  modelName: "gemini-pro",
+  modelName: "gemini-1.5-flash",
   maxOutputTokens: 2048,
 });
 

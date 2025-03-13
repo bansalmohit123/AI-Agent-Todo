@@ -17,6 +17,7 @@
     "@types/node": "^22.10.10",
     "@types/pg": "^8.11.11",
     "drizzle-kit": "^0.30.2",
+    "husky": "^4.3.8",
     "tsx": "^4.19.2"
   },
   "dependencies": {
@@ -24,8 +25,9 @@
     "dotenv": "^16.4.7",
     "drizzle-Kit": "npm:drizzle-kit@^0.30.2",
     "drizzle-orm": "^0.38.4",
+    "groq-sdk": "^0.16.0",
     "openai": "^4.80.1",
-    "pg": "^8.13.1",
+    "pg": "^8.14.0",
     "readline-sync": "^1.4.10"
   }
 }

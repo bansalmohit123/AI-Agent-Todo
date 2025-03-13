@@ -1,129 +1,110 @@
-// import { ilike } from "drizzle-orm";
-// import { db } from "./db/index.js";
-// import { todosTable } from "./db/schema.js";
-// import OpenAI from "openai";
-// import  readlineSync  from "readline-sync";
+import { ilike } from "drizzle-orm";
+import { db } from "./db/index.js";
+import { todosTable } from "./db/schema.js";
+import readlineSync from "readline-sync";
+import Groq from "groq-sdk";
+import dotenv from "dotenv";
+dotenv.config();
 
+const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// const client = new OpenAI(process.env.OPENAI_API_KEY);
+async function getAllTodos() {
+  return await db.select().from(todosTable);
+}
 
-// async function getAllTodos() {
-//   const todos = await db.select().from(todosTable);
-//   return todos;
-// }
+async function createTodo(todo) {
+  const [newTodo] = await db
+    .insert(todosTable)
+    .values({ todo })
+    .returning({ id: todosTable.id });
 
-// async function createTodo(todo) {
-//   const [newTodo] = await db.insert(todo).values({ todo }).returning({id : todosTable.id});
-//     return newTodo.id;
-// }
+  return newTodo.id;
+}
 
-// async function searchTodos(search) {
-//   const todos = await db
-//     .select()
-//     .from(todosTable)
-//     .where(ilike(todosTable.todo, `%${search}%`));
-//   return todos;
-// }
-// async function deleteTodoById(id) {
-//   await db.delete().from(todosTable).where(todosTable.id.eq(id));
-// }
+async function searchTodos(search) {
+  return await db
+    .select()
+    .from(todosTable)
+    .where(ilike(todosTable.todo, `%${search}%`));
+}
 
-// const tools = {
-//     getAllTodos: getAllTodos,
-//     createTodo: createTodo,
-//     searchTodos: searchTodos,
-//     deleteTodoById: deleteTodoById
-// } 
+async function deleteTodoById(id) {
+  await db.delete(todosTable).where(todosTable.id.eq(id));
+}
 
-// const SYSTEM_PROMPT = `
+const tools = { getAllTodos, createTodo, searchTodos, deleteTodoById };
 
-// You are an AI To-Do List Assistant with START, PLAN, ACTION, Obersation and Output State.
-// Wait for the user prompt and first PLAN using available tools.
-// After Planning, Take the actions with appropriate tools and wait for Observation based on Action.
-// Once you get the Observation, Return the AI response based on START prompt and Observation.
+const SYSTEM_PROMPT = `
+You are an AI To-Do List Assistant with START, PLAN, ACTION, Observation, and Output State.
+Wait for the user prompt and first PLAN using available tools.
+After Planning, Take the actions with appropriate tools and wait for Observation based on Action.
+Once you get the Observation, Return the AI response based on START prompt and Observation.
 
+You must strictly follow the JSON output format.
 
+Todo DB Schema:
+id : Int and Primary Key
+todo : String
+createdAt : Date Time
+updatedAt : Date Time
 
-// You can manage tasks by adding, viewing, updating, and deleting tasks.
-// You must strictl follow the JSON ouptut format
+Available Tools:
+- getAllTodos(): Returns all the todos from Database
+- createTodo(todo: string): Creates a new todo in the Database and takes todo as a string and returns the ID of the newly created todo
+- searchTodos(search: string): Searches for all todos matching the query string using ilike operator
+- deleteTodoById(id: string): Deletes a todo by ID given in database 
+`;
 
-// Todo DB Schema:
-// id : Int and Primary Key
-// todo : String
-// createdAt : Date Time
-// updatedAt : Date Time
+const messages = [{ role: "system", content: SYSTEM_PROMPT }];
 
+async function main() {
+  while (true) {
+    const query = readlineSync.question(">> ");
+    messages.push({ role: "user", content: query });
 
-// Available Tools:
-// - getAllTodos(): Returns all the todos from Database
-// - createTodo(todo: string): Creates a new todo in the Database and takes todo as a string and returns the ID of the newly created todo
-// - searchTodos(search: string): Searches for all todos matching the query string using ilike operator
-// - deleteTodoById(id: string): Deletes a todo by ID given in database 
+    try {
+      let continueLoop = true;
 
-// Example:
-// START
-// {
-// "type" : "user", "user" : "Add a task for shopping groceries."
-// }
-// {
-// "type: "plan" , "plan" : "I will try to get more context on what user needs to shop."
-// }
-// {
-// "type: "output" , "plan" : "can you tell me what all items you need to shop for?"
-// }
-// {
-// "type": "user", "user" : "I want to shop for milk, Kurkrue, lays and choco"
-// {
-// "type: "plan" , "plan" : "I will use createTodo to create a new Todo in DB."
-// }
-// {
-// "type" : "action" , "function" :"createTodo", "input" : "shopping for milk, Kurkrue, lays and choco"
-// }
-// {
-// "type" : "observation" , "observation" : "2"
-// }
-// {
-// "type" : "output" , "output" : "Your todo has been added successfully"
-// }
-// `;
+      while (continueLoop) {
+        const chat = await client.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages: messages,
+          response_format: { type: "json_object" }
+        });
 
-// const messages = [ { type: "system", system: SYSTEM_PROMPT } ];
+        const result = chat.choices[0].message.content;
 
+        let action;
+        try {
+          action = JSON.parse(result);
+          console.log(JSON.stringify(action, null, 2));
+        } catch (error) {
+          console.error("Error parsing JSON:", result);
+          break;
+        }
 
-// while(true){
-//     const query = readlineSync.question('>> ');
-//     const userMessage = {
-//         type: "user",
-//         user: query
-//     };
-//     messages.push({role : "user", content: JSON.stringify(userMessage)});
+        messages.push({ role: "assistant", content: result });
 
-//     while(true) {
-//         const chat = await client.chat.completions.create({
-//             model: "gpt-3.5-turbo",
-//             messages: messages,
-//             response_format : { type : 'json_object'}
-//         });
-//         const result = chat.choices[0].message.content;
-//         messages.push({role: "assistant", content: result});
+        if (action.state === "OUTPUT") {
+          console.log(`Assistant: ${action.output}`);
+          continueLoop = false;
+        } else if (action.state === "ACTION") {
+          const fn = tools[action.tool];
+          if (!fn) {
+            console.error(`Function ${action.toolFunction} not found`);
+            break;
+          }
+          const observation = await fn(action.parameters);
+          messages.push({
+            role: "assistant",
+            content: JSON.stringify({ type: "observation", observation }),
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error during AI processing:", error);
+    }
+  }
+}
 
-//         const action = JSON.parse(result);
-
-//         if(action.type === "output") {
-//             console.log(`Assitant:${action.output}`);
-//             break;
-//         }
-//         else if(action.type ==='action'){
-//             const fn = tools[action.function];
-//             if(!fn){
-//                 throw new Error(`Function ${action.function} not found`);
-//             }
-//             const observation = await fn(action.input);
-//             const observationMessage = {
-//                 type: "observation",
-//                 observation: observation
-//             };
-//             messages.push({role: "developer", content: JSON.stringify(observationMessage)});
-//         }
-//     }
-// }
+main();
